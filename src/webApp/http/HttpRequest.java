@@ -20,57 +20,132 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
 
 public class HttpRequest implements HttpServletRequest {
-	private SocketChannel channel;
-	private HttpHead head;
-	private Map<String, String> params = new HashMap<>();
-	private String context;
+	public HttpHead head = null;
+	public Map<String, String> paramsMap = null;
 
-	public HttpRequest(SocketChannel channel) {
-		this.channel = channel;
+	public Map<String, byte[]> byteParamsMap = null;
+
+	public byte[] bytes = null;
+
+	public HttpRequest(byte[] bs) {
+		head = new HttpHead();
+		paramsMap = new HashMap<>();
+		byteParamsMap = new HashMap<>();
+		
+		this.bytes = bs;
 	}
 
-	public void parseHead() {
-		// TODO 解析请求头
-		try {
-			String receive = receive(this.channel);
-			BufferedReader br = new BufferedReader(new StringReader(receive));
-			this.head = new HttpHead(br);
-			this.head.parseHead();
-			br.close();
+	public void parseMessageIn() {
+		if (bytes == null)
+			return;
 
-			// 解析参数
-			parseParams();
-		} catch (Exception e) {
-			e.printStackTrace();
-		}
-	}
+		ByteReader br = new ByteReader(bytes);
+		byte[] methodLine = br.readLine();
+		if(methodLine == null || methodLine.length == 0)
+			return;
+		
+		String[] methods = ByteReader.split(methodLine, ' ');
+		head.method = methods[0];
+		head.requestURL = methods[1];
+		head.protocol = methods[2];
 
-	private void parseParams() {
-		String url = this.head.getRequestURL();
-		this.context = url.substring(1, url.indexOf("?"));
-		String params = url.substring(url.indexOf("?") + 1, url.length());
-		String[] split = params.split("&");
-		for (String param : split) {
-			String[] split2 = param.split("=");
-			this.params.put(split2[0], split2[1]);
-		}
-	}
+//		System.out.println("method " + head.method);
+//		System.out.println("url " + head.requestURL);
+//		System.out.println("protocol" + head.protocol);
+		
+		for (;;) {
+			byte[] bs = br.readLine();
+			
+			syso
+			
+			if (bs == null || bs.length == 0) {
+				break;
+			} else {
+				String[] kv = ByteReader.kvSplit(bs, ':');
+				head.kv.put(kv[0], kv[1]);
+			}
+		}// head end
 
-	// 接受数据
-	private String receive(SocketChannel socketChannel) throws Exception {
-		ByteBuffer buffer = ByteBuffer.allocate(1024);
-		byte[] bytes = null;
-		int size = 0;
-		ByteArrayOutputStream baos = new ByteArrayOutputStream();
-		while ((size = socketChannel.read(buffer)) > 0) {
-			buffer.flip();
-			bytes = new byte[size];
-			buffer.get(bytes);
-			baos.write(bytes);
-			buffer.clear();
+		// init params
+		if (methods[0].equals("GET")) {
+			int index = methods[1].indexOf("?");
+			if (index != -1) {
+				head.requestURL = methods[1].substring(0, index);
+				String[] kvs = methods[1].substring(index+1).split("&");
+				for (String string : kvs) {
+					String[] kv = string.split("=");
+					paramsMap.put(kv[0], kv[1]);
+				}
+			}
+		} else if (methods[0].equals("POST")) {
+			String c_type = head.kv.get("Content-Type");
+			int index = c_type.indexOf("boundary=");
+			if (index == -1) {
+				String content = new String(br.readLine());
+				String[] kvs = content.split("&");
+				for (String string : kvs) {
+					String[] kv = string.split("=");
+					paramsMap.put(kv[0], kv[1]);
+				}
+			} else {
+				/**
+				 * 过滤boundary下形如 Content-Disposition: form-data; name="bin";
+				 * filename="12.pdf" Content-Type: application/octet-stream
+				 * Content-Transfer-Encoding: binary 的字符串
+				 */
+				index += "boundary=".length();
+				String boundary = "--" + c_type.substring(index);
+				String lastboundary = boundary + "--";
+
+				
+				byte[] bs = br.readLine();;
+				
+				// 循环解析文件
+				//--OCqxMF6-JxtxoMDHmoG5W5eY9MGRsTBp
+				// Content-Disposition: form-data; name="lng"
+				// Content-Type: text/plain; charset=UTF-8
+				// Content-Transfer-Encoding: 8bit
+				// 116.361545
+				while (bs != null) {
+					if(bs.length <= 0) {
+						bs = br.readLine();
+						continue;
+					}
+					
+					String[] kvs = ByteReader.split(bs, ';');
+
+					String name_val = null;
+					for (String string : kvs) {
+						String[] kv = string.split("=");
+
+						if (kv[0].equals("name")) {
+							name_val = kv[1];
+							bs = br.readLine();
+							while ((bs = br.readLine()).length > 0)
+								;
+							// \r\n
+							// content
+							bs = br.readLine();
+							byteParamsMap.put(name_val, bs);
+
+						} else if (kv[0].equals("filename")) {
+							String fileNameKey = name_val + "_filename";
+							paramsMap.put(fileNameKey, kv[1]);
+						}
+					}
+
+					byte[] boundary_t = br.readLine();
+					if (ByteReader.indexOf(lastboundary.getBytes(), boundary_t) >= 0) {
+						break;
+					}
+				}
+				
+				bs = br.readLine();
+			}
 		}
-		bytes = baos.toByteArray();
-		return new String(bytes);
+		
+		
+//		System.out.println("name "+ paramsMap.get("userName"));
 	}
 
 	@Override
@@ -88,7 +163,7 @@ public class HttpRequest implements HttpServletRequest {
 	@Override
 	public String getCharacterEncoding() {
 		// TODO Auto-generated method stub
-		return null;
+		return paramsMap.get("Content-Encoding");
 	}
 
 	@Override
@@ -142,7 +217,7 @@ public class HttpRequest implements HttpServletRequest {
 	@Override
 	public String getParameter(String arg0) {
 		// TODO Auto-generated method stub
-		return this.params.get(arg0);
+		return paramsMap.get(arg0);
 	}
 
 	@Override
@@ -166,7 +241,7 @@ public class HttpRequest implements HttpServletRequest {
 	@Override
 	public String getProtocol() {
 		// TODO Auto-generated method stub
-		return null;
+		return head.protocol;
 	}
 
 	@Override
@@ -190,7 +265,7 @@ public class HttpRequest implements HttpServletRequest {
 	@Override
 	public String getRemoteHost() {
 		// TODO Auto-generated method stub
-		return null;
+		return paramsMap.get("Host");
 	}
 
 	@Override
@@ -257,7 +332,7 @@ public class HttpRequest implements HttpServletRequest {
 	@Override
 	public String getContextPath() {
 		// TODO Auto-generated method stub
-		return this.context;
+		return head.requestURL;
 	}
 
 	@Override
@@ -347,8 +422,8 @@ public class HttpRequest implements HttpServletRequest {
 	@Override
 	public String getServletPath() {
 		// TODO Auto-generated method stub
-		//绝对路径
-		return HttpConstants.webappPath+this.context.substring(1);
+		// 绝对路径
+		return null;
 	}
 
 	@Override
@@ -399,12 +474,12 @@ public class HttpRequest implements HttpServletRequest {
 		return false;
 	}
 
-//	public static void main(String[] args) {
-//		String content = "hello/MyServlet";
-//
-//		System.out.println(content.substring(0, content.indexOf("/")));
-//		System.out.println(content.substring(content.indexOf("/") + 1,
-//				content.length()));
-//	}
+	// public static void main(String[] args) {
+	// String content = "hello/MyServlet";
+	//
+	// System.out.println(content.substring(0, content.indexOf("/")));
+	// System.out.println(content.substring(content.indexOf("/") + 1,
+	// content.length()));
+	// }
 
 }

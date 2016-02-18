@@ -1,6 +1,8 @@
 package webApp.http;
 
+import java.io.ByteArrayOutputStream;
 import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
@@ -8,12 +10,12 @@ import java.nio.channels.SocketChannel;
 import java.util.Iterator;
 
 public class HttpServer {
-	
+
 	public static void main(String[] args) throws Exception {
 		HttpConstants.init();
-		
+
 		HttpServer server = new HttpServer();
-		server.start(1234);
+		server.start(1235);
 	}
 
 	public void start(int port) throws Exception {
@@ -45,23 +47,40 @@ public class HttpServer {
 					channel.configureBlocking(false);
 
 					// 创建reqeust对象
-					HttpRequest request = new HttpRequest(channel);
-					request.parseHead();
-
-					//创建response
-					HttpResponse response = new HttpResponse(request);
+					HttpRequest request = new HttpRequest(receive(channel));
+					request.parseMessageIn();
 					
+					// 创建response
+					HttpResponse response = new HttpResponse(request);
+
 					channel.register(selector, SelectionKey.OP_WRITE, response);
 
 				} else if (key.isWritable()) {
 					SocketChannel channel = (SocketChannel) key.channel();
-					HttpResponse response = (HttpResponse)key.attachment();
-					channel.write(response.buffer);
+					HttpResponse response = (HttpResponse) key.attachment();
+					channel.write(response.messageBuffer);
 					channel.shutdownOutput();
 					channel.close();
 				}
 				selectedKeys.remove();
 			}
 		}
+	}
+
+	// 接受数据
+	private byte[] receive(SocketChannel socketChannel) throws Exception {
+		ByteBuffer buffer = ByteBuffer.allocate(1024);
+		byte[] bytes = null;
+		int size = 0;
+		ByteArrayOutputStream baos = new ByteArrayOutputStream();
+		while ((size = socketChannel.read(buffer)) > 0) {
+			buffer.flip();
+			bytes = new byte[size];
+			buffer.get(bytes);
+			baos.write(bytes);
+			buffer.clear();
+		}
+		bytes = baos.toByteArray();
+		return bytes;
 	}
 }

@@ -3,17 +3,15 @@ package webApp.http;
 import java.io.IOException;
 
 import javax.servlet.ServletException;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-public class HttpProcess {
-	public void service(HttpServletRequest request,HttpServletResponse response){  
-	        String api = request.getContextPath();   
+import webApp.http.servlet.WebServlet;
 
-	        System.out.println("api:"+api);
+public class HttpProcess {
+	public void service(HttpRequest request,HttpServletResponse response){  
+	        String api = request.getContextPath();
 	        
-	        HttpServlet servlet = HttpConstants.apiMap.get(api);
+	        WebServlet servlet = HttpConstants.apiMap.get(api);
 	        try {
 	        	 if (servlet == null) {
 	 				//静态 html 图片 css js等
